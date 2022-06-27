@@ -3,47 +3,67 @@
 // Set a minimum funding value
 
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.8;
-
+pragma solidity ^0.8.8;
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "./PriceConverter.sol";
-error NotOwner();
+
+error FundMe__NotOwner();
+
+/**@title A contract for crowd funding
+ * @author Bilal Asif
+ * @notice This contract is a demo to sample funding contract
+ * @dev This implements price feeds as our library
+ */
 
 contract FundMe {
+    // Type Declarations
     using PriceConverter for uint256;
 
-    address[] public funders;
-    mapping(address => uint256) public addressToAmountFunded;
+    // State Variable
+    address[] public s_funders;
+    mapping(address => uint256) public s_addressToAmountFunded;
     uint256 public constant MINIMUM_USD = 50 * 1e18;
-    //871711
-    //23515
     address public immutable i_owner;
-    AggregatorV3Interface public priceFeed;
+    AggregatorV3Interface public s_priceFeed;
+
+    // Modefiers
+    modifier onleyOwner() {
+        // require(msg.sender == i_owner, "Sender is not the owner");
+        if (msg.sender != i_owner) {
+            revert FundMe__NotOwner();
+        }
+        _; // Telling here that first check the above statement and run the code after wards
+    }
 
     constructor(address priceFeedAddress) {
         i_owner = msg.sender;
-        priceFeed = AggregatorV3Interface(priceFeedAddress);
+        s_priceFeed = AggregatorV3Interface(priceFeedAddress);
     }
 
+    /**
+     * @notice This function funds this contract
+     * @dev This implements price feeds as our library
+     */
     function fund() public payable {
         require(
-            msg.value.getConversionRate(priceFeed) >= MINIMUM_USD,
-            "Didnt send enough"
+            msg.value.getConversionRate(s_priceFeed) >= MINIMUM_USD,
+            "You need to spend more ETH!"
         );
-        funders.push(msg.sender);
-        addressToAmountFunded[msg.sender] = msg.value;
+        s_funders.push(msg.sender);
+        s_addressToAmountFunded[msg.sender] = msg.value;
     }
 
     function withdraw() public onleyOwner {
         for (
             uint256 funderIndex = 0;
-            funderIndex < funders.length;
+            funderIndex < s_funders.length;
             funderIndex++
         ) {
-            address funder = funders[funderIndex];
-            addressToAmountFunded[funder] = 0;
+            address funder = s_funders[funderIndex];
+            s_addressToAmountFunded[funder] = 0;
         }
         //reset the array
-        funders = new address[](0);
+        s_funders = new address[](0);
 
         //actually withdraw the funds
         //transfer:
@@ -69,33 +89,19 @@ contract FundMe {
         require(sendSuccess, "Call Failure");
     }
 
-    modifier onleyOwner() {
-        // require(msg.sender == i_owner, "Sender is not the owner");
-        if (msg.sender != i_owner) {
-            revert NotOwner();
+    function cheaperWithdraw() public payable onleyOwner {
+        address[] memory funders = s_funders;
+
+        for (
+            uint256 funderIndex = 0;
+            funderIndex < funders.length;
+            funderIndex++
+        ) {
+            address funder = funders[funderIndex];
+            s_addressToAmountFunded[funder] = 0;
         }
-        _; // Telling here that first check the above statement and run the code after wards
-    }
-
-    //What happens when someone sends this contract ETH without calling the fund function
-
-    // Explainer from: https://solidity-by-example.org/fallback/
-    // Ether is sent to contract
-    //      is msg.data empty?
-    //          /   \
-    //         yes  no
-    //         /     \
-    //    receive()?  fallback()
-    //     /   \
-    //   yes   no
-    //  /        \
-    //receive()  fallback()
-
-    fallback() external payable {
-        fund();
-    }
-
-    receive() external payable {
-        fund();
+        s_funders = new address[](0);
+        (bool success, ) = i_owner.call{value: address(this).balance}("");
+        require(success);
     }
 }
